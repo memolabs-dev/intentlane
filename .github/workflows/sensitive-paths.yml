@@ -1,0 +1,93 @@
+# Label a pull request that touches a sensitive path, and name the paths in one comment
+# (Memo Labs autoloop T-M2b, memolabs-dev/memo-bridge docs/MERGIFY_FLEET_ADOPTION.md).
+# Mergify already refuses such a PR; this makes the reason visible on the PR itself.
+#
+# pull_request_target runs this file from the base branch with a write token, so it never
+# checks out or runs PR code: it only reads the PR's file list and the base .mergify.yml
+# through the API. PR data reaches the shell through env, never through ${{ }} in the script.
+name: Sensitive paths
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: sensitive-paths-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    name: Label sensitive paths
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Label and comment when a sensitive path is touched
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Label a PR that touches a sensitive path and say which paths, once (autoloop T-M2b).
+          # The sensitive pattern is read from the base branch's .mergify.yml, so the label and
+          # Mergify's refusal can never disagree. Never checks out or runs PR code.
+          # Env: GH_TOKEN, REPO, PR, BASE_SHA. DRY_RUN=1 prints instead of writing.
+          set -euo pipefail
+          marker='<!-- memo-labs:sensitive-paths -->'
+
+          config=$(gh api "repos/$REPO/contents/.mergify.yml?ref=$BASE_SHA" --jq .content | base64 -d)
+          line=$(printf '%s\n' "$config" | grep -m1 -- '-files ~=' || true)
+          # A repository that only says `extends: <repo>` takes the pattern from that repository of the
+          # same organization (Mergify's own lookup rule), on its default branch.
+          parent=$(printf '%s\n' "$config" | sed -n 's/^extends:[[:space:]]*\([A-Za-z0-9._-]*\).*/\1/p' | sed -n 1p)
+          if [ -z "$line" ] && [ -n "$parent" ]; then
+            line=$(gh api "repos/${REPO%%/*}/$parent/contents/.mergify.yml" --jq .content | base64 -d | grep -m1 -- '-files ~=' || true)
+          fi
+          if [ -z "$line" ]; then
+            echo "no '-files ~=' condition in .mergify.yml at $BASE_SHA: nothing to check"
+            exit 0
+          fi
+          re=${line#*-files ~= }
+          case "$line" in
+            *'"'*) re=${re%\"}; re=${re//\\\\/\\} ;;   # YAML double-quoted: drop the quote, unescape \\
+          esac
+
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)')
+          matched=$(printf '%s\n' "$files" | grep -E -- "$re" | sort -u || true)
+          if [ -z "$matched" ]; then
+            echo "PR #$PR touches no sensitive path"
+            exit 0
+          fi
+
+          list=$(printf '%s\n' "$matched" | sed -n '1,50p' | sed 's/`//g; s/^/- `/; s/$/`/')
+          count=$(printf '%s\n' "$matched" | wc -l | tr -d ' ')
+          body="$marker
+          This pull request touches $count path(s) that Mergify never merges on its own. The owner merges it by hand, or closes it.
+
+          $list
+
+          Pattern: the \`-files\` condition of the base branch \`.mergify.yml\`, or of the configuration it extends."
+
+          if [ "${DRY_RUN:-0}" = 1 ]; then
+            printf 'would label #%s needs-human-review and comment:\n%s\n' "$PR" "$body"
+            exit 0
+          fi
+
+          gh label create needs-human-review --repo "$REPO" --color D93F0B \
+            --description "Touches a sensitive path: the owner merges by hand" 2>/dev/null || true
+          gh api -X POST "repos/$REPO/issues/$PR/labels" -f 'labels[]=needs-human-review' >/dev/null
+          existing=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | sed -n 1p)
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$existing" -f body="$body" >/dev/null
+          else
+            gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$body" >/dev/null
+          fi
+          echo "PR #$PR labelled needs-human-review ($count sensitive path(s))"

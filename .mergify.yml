@@ -1,0 +1,34 @@
+# Generated from memolabs-dev/mergify-config (.mergify.yml): change the source, then re-sync.
+# Memo Labs fleet merge policy. Owner decision of 2026-10-18: a green PR from the owner or the
+# memo-labs-automation App lands without a human; only the gate itself waits (.github/,
+# .mergify.yml, CODEOWNERS, AGENTS.md, .env). "Green" means: no failing and no pending check, and
+# at least one successful check that is not the labelling workflow or Mergify itself, so a
+# repository without CI never auto-merges.
+# Procedure and history: memolabs-dev/memo-bridge docs/MERGIFY_FLEET_ADOPTION.md.
+shared:
+  land_conditions: &land_conditions
+    - base = main
+    - -draft
+    - -from-fork
+    - or:
+        - author = memo-labs-automation[bot]
+        - author = guillaume-flambard
+    - label != hold-merge
+    - label != needs-human-review
+    - "-files ~= ^(\\.github/|\\.mergify\\.yml$|CODEOWNERS$|AGENTS\\.md$|\\.env)"
+    - "#check-failure = 0"
+    - "#check-pending = 0"
+    - "check-success ~= ^(?!Label sensitive paths$)(?!Mergify)(?!Configuration ).+"
+
+merge_queue:
+  max_parallel_checks: 1
+
+merge_protections_settings:
+  auto_merge_conditions: *land_conditions
+
+queue_rules:
+  - name: memo-labs-autoloop
+    batch_size: 1
+    merge_method: squash
+    queue_conditions: *land_conditions
+    merge_conditions: *land_conditions

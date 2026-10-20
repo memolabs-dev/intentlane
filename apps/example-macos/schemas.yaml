@@ -5,6 +5,7 @@ app:
   name: Studio
   url_scheme: studio
   min_ios: "27.0"
+  shortcuts: true
   locales:
     - en
     - fr

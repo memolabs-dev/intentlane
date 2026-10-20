@@ -5,6 +5,7 @@ app:
   name: "Shelf"
   url_scheme: "shelf"
   min_ios: "18.0"
+  shortcuts: true
   locales:
     - en
     - fr

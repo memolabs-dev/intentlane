@@ -2,6 +2,7 @@ schema: "0.1"
 app:
   id: "dev.intentlane.example"
   name: "IntentLane Example"
+  shortcuts: true
   url_scheme: "intentlaneexample"
   min_ios: "18.0"
   locales: [en, fr]

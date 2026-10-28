@@ -10,10 +10,13 @@
   "scripts": {
     "build": "tsc --noEmit && pnpm bundle",
     "bundle": "esbuild packages/cli/src/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=packages/cli/dist/index.cjs",
-    "test": "vitest run",
+    "test": "vitest run && node --test test/hooks.test.mjs",
     "validate": "tsx packages/cli/src/index.ts validate",
     "generate": "tsx packages/cli/src/index.ts generate",
-    "verify": "rm -rf .intentlane/generated /tmp/intentlane-second && pnpm build && pnpm test && pnpm validate && pnpm generate --output .intentlane/generated && pnpm generate --output .intentlane/generated --check && pnpm generate --output /tmp/intentlane-second && diff -r .intentlane/generated /tmp/intentlane-second"
+    "verify": "rm -rf .intentlane/generated /tmp/intentlane-second && pnpm build && pnpm test && pnpm validate && pnpm generate --output .intentlane/generated && pnpm generate --output .intentlane/generated --check && pnpm generate --output /tmp/intentlane-second && diff -r .intentlane/generated /tmp/intentlane-second",
+    "prepare": "sh scripts/install-git-hooks.sh",
+    "hooks:install": "sh scripts/install-git-hooks.sh",
+    "check:staged": "pnpm exec tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

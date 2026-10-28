@@ -1,0 +1,18 @@
+#!/bin/sh
+# Fast checks for the staged snapshot, before a commit is created.
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+
+# Reject whitespace errors introduced by this commit, not pre-existing files.
+git diff --cached --check
+
+# Reject obvious secrets and credentials before the push/CI boundary.
+if git diff --cached --name-only --diff-filter=ACMR | grep -E '(^|/)\.env($|\.(local|production|development|test)$)|\.(pem|p12|p8)$' >/dev/null; then
+  printf '%s\n' "pre-commit: a credential or private environment file is staged; remove it from the index." >&2
+  exit 1
+fi
+
+# Project-specific fast checks; the template runs its tiny Node smoke tests.
+if [ -f package.json ] && command -v npm >/dev/null 2>&1; then
+  npm run check:staged --if-present
+fi
